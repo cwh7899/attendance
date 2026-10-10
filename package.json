@@ -1,0 +1,23 @@
+{
+  "name": "qr-attendance",
+  "version": "1.0.0",
+  "description": "Take attendance by scanning a QR code and entering your name",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cwh7899/attendance.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cwh7899/attendance/issues"
+  },
+  "homepage": "https://github.com/cwh7899/attendance#readme",
+  "dependencies": {
+    "express": "^4.22.3",
+    "qrcode": "^1.5.4"
+  },
+  "private": true
+}

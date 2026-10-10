@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Check in</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="narrow">
+    <p class="muted">Attendance</p>
+    <h1 id="title">Loading…</h1>
+
+    <form id="form" class="card hidden">
+      <label for="name">Your full name</label>
+      <input id="name" type="text" autocomplete="name" maxlength="80" required autofocus>
+      <button class="full" type="submit">Check in</button>
+      <div id="msg" class="msg err hidden"></div>
+    </form>
+
+    <div id="done" class="card hidden">
+      <div class="check">✅</div>
+      <h2 style="text-align:center">You're checked in</h2>
+      <p class="muted" style="text-align:center" id="done-text"></p>
+      <button id="again" class="secondary full" type="button">Check in someone else</button>
+    </div>
+
+    <div id="closed" class="card hidden">
+      <h2>Check-in is closed</h2>
+      <p class="muted">This session is no longer accepting attendance. Please contact the organizer.</p>
+    </div>
+  </main>
+
+  <script>
+    const id = location.pathname.split('/').pop();
+    const $ = (s) => document.getElementById(s);
+    const storageKey = `checkedIn:${id}`;
+
+    function show(which) {
+      for (const el of ['form', 'done', 'closed']) $(el).classList.toggle('hidden', el !== which);
+    }
+
+    function showDone(attendee) {
+      $('done-text').textContent = `${attendee.name} · ${new Date(attendee.time).toLocaleTimeString()}`;
+      show('done');
+    }
+
+    async function load() {
+      const res = await fetch(`/api/sessions/${id}`);
+      if (!res.ok) {
+        $('title').textContent = 'Session not found';
+        return;
+      }
+      const s = await res.json();
+      $('title').textContent = s.title;
+      document.title = `Check in · ${s.title}`;
+
+      let previous = null;
+      try { previous = JSON.parse(localStorage.getItem(storageKey)); } catch {}
+      if (previous) return showDone(previous);
+      show(s.open ? 'form' : 'closed');
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('form').querySelector('button');
+      const msg = $('msg');
+      btn.disabled = true;
+      msg.classList.add('hidden');
+      try {
+        const res = await fetch(`/api/sessions/${id}/checkin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: $('name').value }),
+        });
+        const data = await res.json();
+        if (res.status === 403) return show('closed');
+        if (!res.ok) throw new Error(data.error || 'Check-in failed');
+        try { localStorage.setItem(storageKey, JSON.stringify(data.attendee)); } catch {}
+        showDone(data.attendee);
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // Shared devices (e.g. a kiosk tablet) can check in multiple people.
+    $('again').addEventListener('click', () => {
+      try { localStorage.removeItem(storageKey); } catch {}
+      $('name').value = '';
+      load();
+    });
+
+    load();
+  </script>
+</body>
+</html>

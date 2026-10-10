@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attendance admin</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <div class="row hide-present" style="justify-content:space-between">
+      <a href="/" class="muted">← All sessions</a>
+      <span id="status" class="badge"></span>
+    </div>
+    <h1 id="title" style="margin-top:12px">Loading…</h1>
+    <div id="error" class="msg err hidden"></div>
+
+    <div id="content" class="grid hidden">
+      <section class="card">
+        <h2 class="hide-present">Scan to check in</h2>
+        <div class="qr"><img id="qr" alt="QR code for check-in"></div>
+        <p class="url muted"><a id="url" target="_blank" rel="noopener"></a></p>
+        <div class="row hide-present">
+          <button id="present" type="button">Present fullscreen</button>
+          <button id="copy" class="secondary" type="button">Copy link</button>
+          <button id="toggle" class="secondary" type="button"></button>
+          <button id="copy-admin" class="secondary" type="button" title="Private link for co-organizers — do not share with attendees">Copy admin link</button>
+        </div>
+      </section>
+
+      <section class="card hide-present">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <div class="count" id="count">0</div>
+            <div class="muted">checked in</div>
+          </div>
+          <a id="export" class="btn secondary" href="#">Download CSV</a>
+        </div>
+        <ol id="list" class="list" style="margin-top:12px"></ol>
+        <p id="empty" class="muted">No one has checked in yet. This list updates automatically.</p>
+      </section>
+    </div>
+  </main>
+
+  <script src="/sessions.js"></script>
+  <script>
+    const id = location.pathname.split('/').pop();
+    const $ = (s) => document.getElementById(s);
+    const hashKey = new URLSearchParams(location.hash.slice(1)).get('key');
+    const key = hashKey || MySessions.keyFor(id);
+    const headers = { 'x-admin-key': key || '' };
+    let session = null;
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`/api/sessions/${id}${path}`, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+      if (!res.ok && res.status !== 204) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      return res.status === 204 ? null : res.json();
+    }
+
+    function render() {
+      $('title').textContent = session.title;
+      document.title = `${session.title} · Attendance`;
+      $('status').textContent = session.open ? 'Open' : 'Closed';
+      $('status').className = `badge ${session.open ? 'open' : 'closed'}`;
+      $('toggle').textContent = session.open ? 'Close check-in' : 'Reopen check-in';
+      $('url').href = $('url').textContent = session.checkinUrl;
+      $('count').textContent = session.attendees.length;
+      $('empty').classList.toggle('hidden', session.attendees.length > 0);
+
+      const list = $('list');
+      list.replaceChildren(...session.attendees.map((a, i) => {
+        const li = document.createElement('li');
+        const n = document.createElement('span');
+        n.className = 'n';
+        n.textContent = `${i + 1}.`;
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = a.name;
+        const t = document.createElement('time');
+        t.textContent = new Date(a.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const del = document.createElement('button');
+        del.className = 'secondary';
+        del.textContent = '✕';
+        del.title = `Remove ${a.name}`;
+        del.onclick = async () => {
+          if (!confirm(`Remove ${a.name}?`)) return;
+          await api(`/attendees/${encodeURIComponent(a.id)}`, { method: 'DELETE' });
+          refresh();
+        };
+        li.append(n, name, t, del);
+        return li;
+      }));
+    }
+
+    async function refresh() {
+      try {
+        session = await api('/admin');
+        MySessions.add({ id, key, title: session.title, createdAt: session.createdAt });
+        $('content').classList.remove('hidden');
+        $('error').classList.add('hidden');
+        render();
+      } catch (err) {
+        $('title').textContent = 'Attendance admin';
+        $('error').textContent = err.message;
+        $('error').classList.remove('hidden');
+      }
+    }
+
+    // Keep the key out of the address bar so it isn't shown when presenting.
+    if (hashKey) history.replaceState(null, '', location.pathname);
+
+    $('qr').src = `/api/sessions/${id}/qr.svg`;
+    $('export').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const res = await fetch(`/api/sessions/${id}/export.csv`, { headers });
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${session.title.replace(/[^\w-]+/g, '_') || 'attendance'}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    $('copy').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(session.checkinUrl);
+      $('copy').textContent = 'Copied!';
+      setTimeout(() => ($('copy').textContent = 'Copy link'), 1500);
+    });
+    $('copy-admin').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(`${location.origin}/admin/${id}#key=${key}`);
+      $('copy-admin').textContent = 'Copied!';
+      setTimeout(() => ($('copy-admin').textContent = 'Copy admin link'), 1500);
+    });
+    $('toggle').addEventListener('click', async () => {
+      await api('', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ open: !session.open }) });
+      refresh();
+    });
+    $('present').addEventListener('click', () => {
+      document.body.classList.add('present');
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    });
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement) document.body.classList.remove('present');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') document.body.classList.remove('present');
+    });
+
+    if (!key) {
+      $('title').textContent = 'Attendance admin';
+      $('error').textContent = 'Missing admin key. Open this session from the browser that created it, or use the full admin link.';
+      $('error').classList.remove('hidden');
+    } else {
+      refresh();
+      setInterval(refresh, 3000);
+    }
+  </script>
+</body>
+</html>

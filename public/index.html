@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QR Attendance</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="narrow">
+    <h1>QR Attendance</h1>
+    <p class="muted">Create a session, show the QR code, and let people check in from their phones.</p>
+
+    <form id="create" class="card">
+      <label for="title">Session name</label>
+      <input id="title" type="text" placeholder="e.g. Biology 101 — Oct 10" maxlength="120" required>
+      <button class="full" type="submit">Create session</button>
+      <div id="msg" class="msg err hidden"></div>
+    </form>
+
+    <div id="recent" class="card hidden">
+      <h2>Your sessions</h2>
+      <ol id="recent-list" class="list"></ol>
+    </div>
+  </main>
+
+  <script src="/sessions.js"></script>
+  <script>
+    const form = document.getElementById('create');
+    const msg = document.getElementById('msg');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = document.getElementById('title').value.trim();
+      const btn = form.querySelector('button');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not create session');
+        MySessions.add({ id: data.id, key: data.adminKey, title, createdAt: new Date().toISOString() });
+        location.href = `/admin/${data.id}#key=${data.adminKey}`;
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.classList.remove('hidden');
+        btn.disabled = false;
+      }
+    });
+
+    const sessions = MySessions.list();
+    if (sessions.length) {
+      document.getElementById('recent').classList.remove('hidden');
+      const list = document.getElementById('recent-list');
+      for (const s of sessions) {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = `/admin/${s.id}#key=${s.key}`;
+        a.textContent = s.title;
+        a.className = 'name';
+        const t = document.createElement('time');
+        t.textContent = new Date(s.createdAt).toLocaleDateString();
+        li.append(a, t);
+        list.append(li);
+      }
+    }
+  </script>
+</body>
+</html>
